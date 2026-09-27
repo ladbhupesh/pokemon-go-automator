@@ -14,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -69,6 +70,30 @@ class MainActivity : ComponentActivity() {
                 projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
             }
 
+            val startLoop = {
+                localNote = null
+                val needsNotification = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.POST_NOTIFICATIONS,
+                    ) != PackageManager.PERMISSION_GRANTED
+                if (needsNotification) {
+                    notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
+                }
+            }
+            // `adb shell am start -n com.pokemongo.automator/.MainActivity --ez autostart true`
+            // starts a run without touching the phone, for scripted test runs.
+            LaunchedEffect(Unit) {
+                if (intent.getBooleanExtra(EXTRA_AUTOSTART, false) && !running &&
+                    overlayGranted && accessibilityGranted
+                ) {
+                    intent.removeExtra(EXTRA_AUTOSTART)
+                    startLoop()
+                }
+            }
+
             PokemonGoAutomatorTheme {
                 HomeScreen(
                     status = if (running) serviceStatus else localNote ?: serviceStatus,
@@ -86,28 +111,26 @@ class MainActivity : ComponentActivity() {
                     onAllowAccessibility = {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     },
-                    onStart = {
-                        localNote = null
-                        val needsNotification = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                            ContextCompat.checkSelfPermission(
-                                this,
-                                Manifest.permission.POST_NOTIFICATIONS,
-                            ) != PackageManager.PERMISSION_GRANTED
-                        if (needsNotification) {
-                            notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            projectionLauncher.launch(projectionManager.createScreenCaptureIntent())
-                        }
-                    },
+                    onStart = startLoop,
                     onStop = { startService(ScreenCaptureService.stopIntent(this)) },
                 )
             }
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_AUTOSTART, false)) recreate()
+    }
+
     private fun openPokemonGo() {
         val launch = packageManager.getLaunchIntentForPackage(PokemonGo.PACKAGE) ?: return
         launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(launch)
+    }
+
+    private companion object {
+        const val EXTRA_AUTOSTART = "autostart"
     }
 }

@@ -1,8 +1,10 @@
 package com.pokemongo.automator.service
 
+import android.accessibilityservice.AccessibilityButtonController
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
+import android.os.Build
 import android.view.accessibility.AccessibilityEvent
 import com.pokemongo.automator.PokemonGo
 import com.pokemongo.automator.catch.CatchGestures
@@ -13,13 +15,30 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 class AutomatorAccessibilityService : AccessibilityService(), CatchGestures {
+    private var buttonCallback: Any? = null
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val callback = object : AccessibilityButtonController.AccessibilityButtonCallback() {
+                override fun onClicked(controller: AccessibilityButtonController) {
+                    onAccessibilityButtonClicked()
+                }
+            }
+            accessibilityButtonController.registerAccessibilityButtonCallback(callback)
+            buttonCallback = callback
+        }
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         if (instance === this) instance = null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            (buttonCallback as? AccessibilityButtonController.AccessibilityButtonCallback)?.let {
+                accessibilityButtonController.unregisterAccessibilityButtonCallback(it)
+            }
+            buttonCallback = null
+        }
         return super.onUnbind(intent)
     }
 
@@ -32,7 +51,7 @@ class AutomatorAccessibilityService : AccessibilityService(), CatchGestures {
 
     override fun onInterrupt() = Unit
 
-    override fun onAccessibilityButtonClicked() {
+    private fun onAccessibilityButtonClicked() {
         if (!AutomatorState.running.value) return
         startService(ScreenCaptureService.stopIntent(this))
     }

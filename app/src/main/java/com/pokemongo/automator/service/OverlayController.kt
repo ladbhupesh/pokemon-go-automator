@@ -21,9 +21,9 @@ class OverlayController(context: Context) {
         val label = TextView(appContext).apply {
             text = "Starting"
             setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setBackgroundColor(Color.parseColor("#CC1B1B1B"))
-            setPadding(28, 14, 28, 14)
+            setPadding(20, 6, 20, 6)
         }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -33,8 +33,10 @@ class OverlayController(context: Context) {
                 WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
             PixelFormat.TRANSLUCENT,
         ).apply {
+            // Stays inside the top band that the scanner and OCR ignore, so it never
+            // has to be hidden before a capture.
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = 72
+            y = 0
         }
         windowManager.addView(label, params)
         view = label

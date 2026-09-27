@@ -15,8 +15,15 @@ class EncounterOcr {
         return suspendCancellableCoroutine { continuation ->
             recognizer.process(InputImage.fromBitmap(scaled, 0))
                 .addOnSuccessListener { result ->
+                    // The status bar, the location app's timer and our own status overlay
+                    // live in the top band; they are never part of a game dialog.
+                    val topBand = scaled.height * TOP_BAND
+                    val text = result.textBlocks
+                        .flatMap { it.lines }
+                        .filter { (it.boundingBox?.top ?: 0) >= topBand }
+                        .joinToString("\n") { it.text }
                     if (scaled !== bitmap) scaled.recycle()
-                    if (continuation.isActive) continuation.resume(result.text)
+                    if (continuation.isActive) continuation.resume(text)
                 }
                 .addOnFailureListener {
                     if (scaled !== bitmap) scaled.recycle()
@@ -38,5 +45,6 @@ class EncounterOcr {
 
     private companion object {
         const val MAX_WIDTH = 720
+        const val TOP_BAND = 0.075f
     }
 }

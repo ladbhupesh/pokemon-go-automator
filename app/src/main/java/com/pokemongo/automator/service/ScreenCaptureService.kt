@@ -26,8 +26,11 @@ import androidx.core.content.ContextCompat
 import com.pokemongo.automator.MainActivity
 import com.pokemongo.automator.R
 import com.pokemongo.automator.catch.CatchRunner
+import com.pokemongo.automator.catch.RunEvent
 import com.pokemongo.automator.vision.EncounterOcr
-import com.pokemongo.automator.vision.MapPokemonFinder
+import com.pokemongo.automator.vision.MapScanner
+import com.pokemongo.automator.vision.PokemonModel
+import com.pokemongo.automator.vision.ScreenSignature
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -52,6 +55,7 @@ class ScreenCaptureService : Service() {
     private var stopped = false
 
     private var caughtCount = 0
+    private var runLog: RunLog? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -89,6 +93,10 @@ class ScreenCaptureService : Service() {
 
         AutomatorState.running.value = true
         AutomatorState.status.value = "Scanning"
+        val scanner = MapScanner(assets.open(PokemonModel.ASSET).reader().use(PokemonModel::read))
+        val log = RunLog(File(getExternalFilesDir(null), "runs"), scope)
+        runLog = log
+        Log.i(TAG, "run log ${log.dir}")
         scope.launch {
             try {
                 CatchRunner(
@@ -102,32 +110,26 @@ class ScreenCaptureService : Service() {
                         text
                     },
                     findPokemon = { bitmap ->
-                        val points = MapPokemonFinder.findCandidates(
-                            width = bitmap.width,
-                            height = bitmap.height,
-                            pixelAt = bitmap::getPixel,
-                        )
-                        Log.i(TAG, "candidates=${points.take(4)}")
-                        points
+                        val started = System.nanoTime()
+                        val scan = scanner.scan(pixelsOf(bitmap), bitmap.width, bitmap.height)
+                        Log.i(TAG, "targets=${scan.targets.take(4).map { "${it.x},${it.y}@${"%.2f".format(it.score)}" }} in ${(System.nanoTime() - started) / 1_000_000}ms")
+                        scan
                     },
-                    isMap = { bitmap ->
-                        MapPokemonFinder.looksLikeMap(
-                            width = bitmap.width,
-                            height = bitmap.height,
-                            pixelAt = bitmap::getPixel,
-                        )
-                    },
-                    onVerifiedCatch = ::recordCatch,
+                    isMap = { bitmap -> ScreenSignature.isMap(pixelsOf(bitmap), bitmap.width, bitmap.height) },
+                    mightBeMap = { bitmap -> ScreenSignature.mightBeMap(pixelsOf(bitmap), bitmap.width, bitmap.height) },
                     pokemonGoInFront = {
                         AutomatorAccessibilityService.instance?.isPokemonGoInFront() == true
                     },
                     onStatus = ::publish,
-                    prepareCapture = { overlay.setVisible(false) },
-                    restoreOverlay = { overlay.setVisible(true) },
+                    onEvent = { event ->
+                        log.record(event)
+                        if (event is RunEvent.Caught) onCaught(log.caught)
+                    },
                 ).run { !stopped }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: RuntimeException) {
+                Log.e(TAG, "catch loop failed", error)
                 AutomatorState.status.value = "Stopped: ${error.message ?: "catch loop failed"}"
                 stopSelf()
             }
@@ -172,9 +174,7 @@ class ScreenCaptureService : Service() {
 
     private suspend fun captureBitmap(): Bitmap? {
         val reader = imageReader ?: return null
-        reader.acquireLatestImage()?.close()
-        delay(120)
-        repeat(5) {
+        repeat(20) {
             val image = reader.acquireLatestImage()
             if (image != null) {
                 return try {
@@ -183,9 +183,22 @@ class ScreenCaptureService : Service() {
                     image.close()
                 }
             }
-            delay(80)
+            delay(16)
         }
         return null
+    }
+
+    /** One pixel buffer per frame, shared by the map check and the scanner. */
+    private var cachedFor: Bitmap? = null
+    private var cachedPixels = IntArray(0)
+
+    private fun pixelsOf(bitmap: Bitmap): IntArray {
+        if (cachedFor === bitmap) return cachedPixels
+        val size = bitmap.width * bitmap.height
+        if (cachedPixels.size != size) cachedPixels = IntArray(size)
+        bitmap.getPixels(cachedPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        cachedFor = bitmap
+        return cachedPixels
     }
 
     private fun imageToBitmap(image: Image): Bitmap {
@@ -218,28 +231,18 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun recordCatch(bitmap: Bitmap, text: String) {
-        caughtCount += 1
-        val count = caughtCount
-        val dir = File(getExternalFilesDir(null), "catches")
-        dir.mkdirs()
-        runCatching {
-            File(dir, "catch-%03d.png".format(count)).outputStream().use { out ->
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, out)
-            }
-            File(dir, "catches.log").appendText(
-                "${System.currentTimeMillis()}\t$count\t${text.replace('\n', ' ').take(240)}\n",
-            )
-        }.onFailure { error ->
-            Log.w(TAG, "could not save catch proof", error)
+    private fun onCaught(count: Int) {
+        caughtCount = count
+        Log.i(TAG, "verified catch $count/$TARGET_CATCHES")
+        publish("Caught $count/$TARGET_CATCHES")
+        if (count >= TARGET_CATCHES) {
+            AutomatorState.status.value = "Done: caught $count"
+            stopSelf()
         }
-        Log.i(TAG, "verified catch $count/100")
-        publish("Caught $count/100")
-        if (count >= 100) stopSelf()
     }
 
     private fun publish(text: String) {
-        val line = if (caughtCount > 0 && !text.startsWith("Caught")) "$text · $caughtCount/100" else text
+        val line = if (caughtCount > 0 && !text.startsWith("Caught")) "$text · $caughtCount/$TARGET_CATCHES" else text
         Log.i(TAG, line)
         AutomatorState.status.value = line
         overlay.update(line)
@@ -306,6 +309,7 @@ class ScreenCaptureService : Service() {
     private fun shutdown() {
         if (stopped) return
         stopped = true
+        runLog?.let { Log.i(TAG, "run finished ${it.summary()}") }
         scope.cancel()
         overlay.remove()
         virtualDisplay?.release()
@@ -317,7 +321,7 @@ class ScreenCaptureService : Service() {
         ocr.close()
         AutomatorState.running.value = false
         val status = AutomatorState.status.value
-        if (!status.startsWith("Stopped") && status != "Screen capture was not allowed") {
+        if (!status.startsWith("Stopped") && !status.startsWith("Done") && status != "Screen capture was not allowed") {
             AutomatorState.status.value = "Idle"
         }
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -349,6 +353,7 @@ class ScreenCaptureService : Service() {
         private const val TAG = "CatchLoop"
         private const val CHANNEL_ID = "catch_loop"
         private const val NOTIFICATION_ID = 42
+        private const val TARGET_CATCHES = 100
 
         fun stopIntent(context: android.content.Context): Intent {
             return Intent(context, ScreenCaptureService::class.java).setAction(ACTION_STOP)
