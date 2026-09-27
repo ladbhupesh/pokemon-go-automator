@@ -120,6 +120,7 @@ class ScreenCaptureService : Service() {
                     pokemonGoInFront = {
                         AutomatorAccessibilityService.instance?.isPokemonGoInFront() == true
                     },
+                    serviceConnected = { AutomatorAccessibilityService.instance != null },
                     onStatus = ::publish,
                     log = { line -> Log.i(TAG, line) },
                     onEvent = { event ->

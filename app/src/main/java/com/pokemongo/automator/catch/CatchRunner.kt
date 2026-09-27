@@ -37,6 +37,7 @@ class CatchRunner(
     private val isMap: (Bitmap) -> Boolean,
     private val mightBeMap: (Bitmap) -> Boolean,
     private val pokemonGoInFront: () -> Boolean,
+    private val serviceConnected: () -> Boolean = { true },
     private val onStatus: (String) -> Unit,
     private val onEvent: (RunEvent) -> Unit,
     private val log: (String) -> Unit = {},
@@ -54,7 +55,7 @@ class CatchRunner(
         var state = loop.initial()
         while (isActive()) {
             if (!pokemonGoInFront()) {
-                onStatus("Waiting for Pokémon Go")
+                onStatus(if (serviceConnected()) "Waiting for Pokémon Go" else "Turn the accessibility service off and on")
                 delay(WAIT_FOR_GAME_MS)
                 continue
             }

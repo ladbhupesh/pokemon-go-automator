@@ -82,6 +82,7 @@ class MapScanner(private val model: PokemonModel) {
         val h = planes.h
         val structures = mutableListOf<Candidate>()
         val balloons = rocketBalloons(planes)
+        val powerSpots = powerSpots(planes)
         return propose(planes, structures)
             .asSequence()
             .mapNotNull { c ->
@@ -92,6 +93,10 @@ class MapScanner(private val model: PokemonModel) {
                 if (c.cy > h * TAP_BOTTOM || c.cy < h * TAP_TOP) return@mapNotNull null
                 if (nearTrainer(c, w, h)) return@mapNotNull null
                 if (structures.any { near(it, c, STRUCTURE_MARGIN) }) return@mapNotNull null
+                // A Power Spot's pillar rises above its olive disc and takes taps there.
+                if (powerSpots.any { (px, py) -> kotlin.math.abs(c.cx - px) < SPOT_DX && c.cy - py in -SPOT_UP..SPOT_DOWN }) {
+                    return@mapNotNull null
+                }
                 // Team GO Rocket grunts stand under their red "R" balloon.
                 if (balloons.any { (bx, by) -> kotlin.math.abs(c.cx - bx) < ROCKET_DX && c.cy - by in -ROCKET_UP..ROCKET_DOWN }) {
                     return@mapNotNull null
@@ -363,6 +368,50 @@ class MapScanner(private val model: PokemonModel) {
         return f
     }
 
+    /** Centres (downscaled) of the olive discs that mark Power Spots. */
+    fun powerSpots(p: Planes): List<Pair<Double, Double>> {
+        val w = p.w
+        val h = p.h
+        val olive = BooleanArray(w * h)
+        for (i in 0 until w * h) {
+            olive[i] = !p.ui[i] && p.hue[i] in 45f..80f && p.sat[i] in 0.3f..0.7f && p.value[i] in 0.28f..0.6f
+        }
+        return blobs(dilate(erode(olive, w, h, 1), w, h, 1), w, h)
+            .filter { it.area >= SPOT_MIN_AREA }
+            .map { it.cx to it.cy }
+    }
+
+    private class Blob(val area: Int, val cx: Double, val cy: Double)
+
+    private fun blobs(mask: BooleanArray, w: Int, h: Int): List<Blob> {
+        val seen = BooleanArray(w * h)
+        val stack = IntArray(w * h)
+        val out = mutableListOf<Blob>()
+        for (start in 0 until w * h) {
+            if (!mask[start] || seen[start]) continue
+            var sp = 0
+            stack[sp++] = start
+            seen[start] = true
+            var area = 0
+            var sx = 0L
+            var sy = 0L
+            while (sp > 0) {
+                val i = stack[--sp]
+                val x = i % w
+                val y = i / w
+                area += 1
+                sx += x
+                sy += y
+                if (x > 0 && mask[i - 1] && !seen[i - 1]) { seen[i - 1] = true; stack[sp++] = i - 1 }
+                if (x < w - 1 && mask[i + 1] && !seen[i + 1]) { seen[i + 1] = true; stack[sp++] = i + 1 }
+                if (y > 0 && mask[i - w] && !seen[i - w]) { seen[i - w] = true; stack[sp++] = i - w }
+                if (y < h - 1 && mask[i + w] && !seen[i + w]) { seen[i + w] = true; stack[sp++] = i + w }
+            }
+            out += Blob(area, sx.toDouble() / area, sy.toDouble() / area)
+        }
+        return out
+    }
+
     /** Centres (downscaled) of salmon-red blobs shaped like the Team GO Rocket "R" balloon. */
     fun rocketBalloons(p: Planes): List<Pair<Double, Double>> {
         val w = p.w
@@ -532,6 +581,10 @@ class MapScanner(private val model: PokemonModel) {
         private const val MIN_TARGET_AREA = 40
         private const val PREFERRED_AREA = 150
         private const val VISITED_MAX = 0.15
+        private const val SPOT_MIN_AREA = 150
+        private const val SPOT_DX = 50.0
+        private const val SPOT_UP = 84.0
+        private const val SPOT_DOWN = 20.0
         private const val BALLOON_MIN = 25
         private const val BALLOON_MAX = 200
         private const val ROCKET_DX = 45.0

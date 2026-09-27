@@ -59,6 +59,13 @@ class AutomatorAccessibilityService : AccessibilityService(), CatchGestures {
     fun isPokemonGoInFront(): Boolean {
         val active = rootInActiveWindow?.packageName?.toString()
         if (active == PokemonGo.PACKAGE) return true
+        // Overlays such as Game Space toolbars or a location app's floating menu can take
+        // the active window while the game is still the app on screen; windows are
+        // ordered top to bottom, so the first application window is the one in front.
+        val topApp = windows
+            ?.firstOrNull { it.type == android.view.accessibility.AccessibilityWindowInfo.TYPE_APPLICATION }
+            ?.root?.packageName?.toString()
+        if (topApp == PokemonGo.PACKAGE) return true
         val gameVisible = windows?.any { window ->
             window.root?.packageName?.toString() == PokemonGo.PACKAGE
         } == true
