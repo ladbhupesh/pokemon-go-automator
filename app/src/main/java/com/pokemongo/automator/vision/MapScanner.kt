@@ -645,7 +645,7 @@ class MapScanner(private val model: PokemonModel) {
         private const val SPOT_DOWN = 70.0
         private const val BALLOON_MIN = 20
         private const val BALLOON_MAX = 220
-        private const val ROCKET_DARK = 0.18
+        private const val ROCKET_DARK = 0.155
         private const val ROCKET_DX = 45.0
         private const val ROCKET_UP = 12.0
         private const val ROCKET_DOWN = 75.0
