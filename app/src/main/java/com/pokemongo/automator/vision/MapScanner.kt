@@ -93,7 +93,8 @@ class MapScanner(private val model: PokemonModel) {
                 if (c.cy > h * TAP_BOTTOM || c.cy < h * TAP_TOP) return@mapNotNull null
                 if (nearTrainer(c, w, h)) return@mapNotNull null
                 if (structures.any { near(it, c, STRUCTURE_MARGIN) }) return@mapNotNull null
-                // A Power Spot's pillar rises above its olive disc and takes taps there.
+                if (onGymTower(planes, c)) return@mapNotNull null
+                // A Power Spot's disc sits on a stalk; taps above and below it open the spot.
                 if (powerSpots.any { (px, py) -> kotlin.math.abs(c.cx - px) < SPOT_DX && c.cy - py in -SPOT_UP..SPOT_DOWN }) {
                     return@mapNotNull null
                 }
@@ -368,6 +369,29 @@ class MapScanner(private val model: PokemonModel) {
         return f
     }
 
+    /**
+     * A gym defender stands on top of its tower: strong team colour (red, blue or yellow)
+     * and white rings right under the candidate. Tapping it opens the gym.
+     */
+    private fun onGymTower(p: Planes, c: Candidate): Boolean {
+        val cx = (c.x0 + c.x1) / 2
+        var team = 0
+        var white = 0
+        var total = 0
+        for (y in c.y1 until min(p.h, c.y1 + GYM_BELOW)) {
+            for (x in max(0, cx - GYM_HALF_W) until min(p.w, cx + GYM_HALF_W)) {
+                val i = y * p.w + x
+                total += 1
+                val hue = p.hue[i]
+                val strong = p.sat[i] > 0.7f && p.value[i] > 0.75f
+                if (strong && (hue < 8f || hue > 350f || hue in 205f..230f || hue in 42f..58f)) team += 1
+                if (p.sat[i] < 0.15f && p.value[i] > 0.75f) white += 1
+            }
+        }
+        if (total == 0) return false
+        return team.toDouble() / total >= GYM_TEAM && white.toDouble() / total >= GYM_WHITE
+    }
+
     /** Centres (downscaled) of the olive discs that mark Power Spots. */
     fun powerSpots(p: Planes): List<Pair<Double, Double>> {
         val w = p.w
@@ -593,10 +617,14 @@ class MapScanner(private val model: PokemonModel) {
         private const val MIN_TARGET_AREA = 40
         private const val PREFERRED_AREA = 150
         private const val VISITED_MAX = 0.15
+        private const val GYM_BELOW = 35
+        private const val GYM_HALF_W = 30
+        private const val GYM_TEAM = 0.15
+        private const val GYM_WHITE = 0.10
         private const val SPOT_MIN_AREA = 150
         private const val SPOT_DX = 50.0
         private const val SPOT_UP = 84.0
-        private const val SPOT_DOWN = 20.0
+        private const val SPOT_DOWN = 70.0
         private const val BALLOON_MIN = 20
         private const val BALLOON_MAX = 220
         private const val ROCKET_DARK = 0.18

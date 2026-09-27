@@ -132,6 +132,13 @@ class CatchRunner(
 
     /** Something other than the map is showing while we expected the map. */
     private suspend fun offMap(frame: Bitmap, text: String): LoopState {
+        // A gym opened by a slow tap: its defenders' CP values give it away.
+        if (gymOrOther(text) == TapOutcome.BLOCKED && !mightBeMap(frame) && !isEncounterText(text)) {
+            rememberMiss()
+            closeScreen()
+            onEvent(RunEvent.Recovered("closed gym", text, null))
+            return loop.abandon()
+        }
         if (mightBeMap(frame) || (EncounterClassifier.isMapOverlay(text) && EncounterClassifier.classify(text) == ScreenRead.UNKNOWN)) {
             delay(RESCAN_MS)
             return loop.abandon()
