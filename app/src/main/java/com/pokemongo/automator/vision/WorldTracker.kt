@@ -23,13 +23,18 @@ class WorldTracker {
     private var previousAt = 0L
 
     /** Feed each scanned map frame's stop mask ([MapScanner.Scan.stops]). */
+    /** Last shift applied, in screen pixels, or null when stops did not agree. For logs. */
+    var lastShift: Pair<Int, Int>? = null
+        private set
+
     fun update(mask: BooleanArray, w: Int, h: Int, now: Long) {
         val before = previous
+        lastShift = null
         if (before != null && previousW == w && previousH == h && ghosts.isNotEmpty()) {
             val shift = estimateShift(before, mask, w, h, now - previousAt)
-            if (shift == null) {
-                ghosts.clear()
-            } else {
+            // Without agreement keep the spots where they are: the camera rarely jumps.
+            if (shift != null) {
+                lastShift = shift.first * MapScanner.STOP_SCALE to shift.second * MapScanner.STOP_SCALE
                 for (g in ghosts) {
                     g.x += shift.first * MapScanner.STOP_SCALE
                     g.y += shift.second * MapScanner.STOP_SCALE
@@ -95,18 +100,20 @@ class WorldTracker {
                 }
             }
         }
+        // A best match on the edge of the search window is the stop grid aliasing, not a walk.
+        if (abs(bestDx) == rx || abs(bestDy) == ry) return null
         return if (best >= max(MIN_POINTS, (xs.size * MIN_AGREEMENT).toInt())) bestDx to bestDy else null
     }
 
     private companion object {
-        const val RADIUS = 75.0
+        const val RADIUS = 100.0
         const val LIFETIME_MS = 90_000L
         const val MIN_POINTS = 20
         const val MAX_POINTS = 500
         const val MIN_AGREEMENT = 0.22
         const val SETTLE_CELLS = 8
-        const val CELLS_PER_SECOND = 60.0
-        const val MAX_DX = 80
-        const val MAX_DY = 130
+        const val CELLS_PER_SECOND = 12.0
+        const val MAX_DX = 60
+        const val MAX_DY = 80
     }
 }

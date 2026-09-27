@@ -39,6 +39,7 @@ class CatchRunner(
     private val pokemonGoInFront: () -> Boolean,
     private val onStatus: (String) -> Unit,
     private val onEvent: (RunEvent) -> Unit,
+    private val log: (String) -> Unit = {},
 ) {
     private var lastTarget: MapScanner.Target? = null
     private val missedTaps = ArrayDeque<Pair<Point, Long>>()
@@ -111,7 +112,8 @@ class CatchRunner(
                 val scan = findPokemon(frame)
                 val now = System.currentTimeMillis()
                 tracker.update(scan.stops, scan.stopsW, scan.stopsH, now)
-                val target = scan.targets.firstOrNull { allowed(it) && !tracker.isGhost(it.x, it.y) }
+                val target = pickTarget(scan.targets)
+                log("tracker shift=${tracker.lastShift} ghosts=${tracker.ghostCount} skipped=${scan.targets.count { tracker.isGhost(it.x, it.y) }}")
                 if (target == null) {
                     delay(RESCAN_MS)
                     return loop.onMap(null)
@@ -141,6 +143,13 @@ class CatchRunner(
         if (isProfile(text)) {
             dismissBottom(text)
             onEvent(RunEvent.Recovered("closed profile", text, null))
+            return loop.abandon()
+        }
+        if (isRewardBubbles(text)) {
+            // Level-up reward bubbles close with a tap on empty space.
+            gestures.tap((screenWidth * 0.80f).toInt(), (screenHeight * 0.88f).toInt())
+            delay(DIALOG_MS)
+            onEvent(RunEvent.Recovered("collected rewards", text, null))
             return loop.abandon()
         }
         if (isExitPrompt(text)) {
@@ -443,6 +452,9 @@ class CatchRunner(
             ("potion" in normalized && ("berry" in normalized || "poke ball" in normalized))
     }
 
+    private fun isRewardBubbles(text: String): Boolean =
+        REWARD_ITEM.findAll(text.lowercase()).count() >= 2 && EncounterClassifier.classify(text) == ScreenRead.UNKNOWN
+
     private fun isExitPrompt(text: String): Boolean {
         val normalized = text.lowercase()
         return "exit" in normalized && "cancel" in normalized
@@ -499,6 +511,19 @@ class CatchRunner(
         }
     }
 
+    /**
+     * First allowed target, but a Pokémon often splits into several candidates (wings,
+     * tails). Tap the biggest piece of the chosen one's cluster: small outlying pieces
+     * are often translucent and the game ignores taps on them.
+     */
+    private fun pickTarget(targets: List<MapScanner.Target>): MapScanner.Target? {
+        val usable = targets.filter { allowed(it) && !tracker.isGhost(it.x, it.y) }
+        val first = usable.firstOrNull() ?: return null
+        return usable
+            .filter { t -> kotlin.math.abs(t.x - first.x) < CLUSTER_PX && kotlin.math.abs(t.y - first.y) < CLUSTER_PX }
+            .maxBy { (it.right - it.left) * (it.bottom - it.top) }
+    }
+
     private fun size(target: MapScanner.Target) =
         maxOf(target.right - target.left, target.bottom - target.top)
 
@@ -543,6 +568,7 @@ class CatchRunner(
         const val MISS_RADIUS = 90
         const val READY_WINDOW_MS = 4_000L
         const val MAP_SETTLE_MS = 700L
+        const val CLUSTER_PX = 90
         const val PROOF_AFTER_THROW_MS = 600L
         val CP_VALUE = Regex("""c[p]\s?\d{2,}""")
         const val PROOF_MEMORY_MS = 6_000L
@@ -550,6 +576,7 @@ class CatchRunner(
         val TRANSFERRED = Regex("""transferred\s+(?:\S*v\s?\d+\s+)?([a-z][a-z'.\-]+)""")
         val ENCOUNTER_NAME = Regex("""([A-Za-zÀ-ÿ'.\-]{3,})\s*/?\s*CP\s?\d""")
         val ENCOUNTER_NAME_SLASH = Regex("""([A-Za-zÀ-ÿ'.\-]{3,})\s*/\s*CP\s?\d""")
+        val REWARD_ITEM = Regex("""\+\s?\d+\s+[a-zé]+""")
         val NOT_NAMES = setOf("berry", "ball", "balls", "razz", "nanab", "pinap", "silver", "golden", "great", "ultra", "poké", "poke")
     }
 }

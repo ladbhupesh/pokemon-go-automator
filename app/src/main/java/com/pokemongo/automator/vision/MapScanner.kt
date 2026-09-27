@@ -518,7 +518,7 @@ class MapScanner(private val model: PokemonModel) {
         const val SCALE = 3
         const val STOP_SCALE = SCALE * 2
         const val FEATURES = 35
-        const val MIN_SCORE = 0.90
+        const val MIN_SCORE = 0.95
         const val PLAYER_Y = 0.62
         private const val RARE_FRACTION = 0.006
         private const val MIN_AREA = 20

@@ -121,6 +121,7 @@ class ScreenCaptureService : Service() {
                         AutomatorAccessibilityService.instance?.isPokemonGoInFront() == true
                     },
                     onStatus = ::publish,
+                    log = { line -> Log.i(TAG, line) },
                     onEvent = { event ->
                         log.record(event)
                         if (event is RunEvent.Caught) onCaught(log.caught)
