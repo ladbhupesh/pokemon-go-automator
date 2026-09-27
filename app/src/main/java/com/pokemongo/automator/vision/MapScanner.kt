@@ -405,7 +405,21 @@ class MapScanner(private val model: PokemonModel) {
                 if (p.sat[i] > 0.7f && p.value[i] > 0.6f && (hue < 8f || hue > 350f || hue in 205f..235f || hue in 42f..58f)) team += 1
             }
         }
-        return total > 0 && team.toDouble() / total >= GYM_AROUND
+        if (total == 0) return false
+        if (team.toDouble() / total >= GYM_AROUND) return true
+        // Paler gym bodies under raid beams: looser team colour plus the white gym rings.
+        var colour = 0
+        var white = 0
+        for (y in max(0, c.y0 - GYM_PAD) until min(p.h, c.y1 + GYM_PAD)) {
+            for (x in max(0, c.x0 - GYM_PAD) until min(p.w, c.x1 + GYM_PAD)) {
+                if (x in c.x0 until c.x1 && y in c.y0 until c.y1) continue
+                val i = y * p.w + x
+                val hue = p.hue[i]
+                if (p.sat[i] > 0.5f && p.value[i] > 0.5f && (hue < 10f || hue > 345f || hue in 200f..240f || hue in 40f..60f)) colour += 1
+                if (p.sat[i] < 0.15f && p.value[i] > 0.75f) white += 1
+            }
+        }
+        return colour.toDouble() / total >= GYM_COLOUR && white.toDouble() / total >= GYM_RINGS
     }
 
     /** Centres (downscaled) of the olive discs that mark Power Spots. */
@@ -635,6 +649,8 @@ class MapScanner(private val model: PokemonModel) {
         private const val VISITED_MAX = 0.15
         private const val GYM_PAD = 25
         private const val GYM_AROUND = 0.09
+        private const val GYM_COLOUR = 0.10
+        private const val GYM_RINGS = 0.12
         private const val GYM_BELOW = 70
         private const val GYM_HALF_W = 40
         private const val GYM_TEAM = 0.10
