@@ -394,7 +394,11 @@ class CatchRunner(
 
     private fun noteEncounterName(text: String) {
         if (encounterName != null) return
-        ENCOUNTER_NAME.find(text)?.groupValues?.get(1)?.let { encounterName = it.lowercase() }
+        // "Name / CP 123" first; without the slash, skip item words from reward lists
+        // ("PINAP BERRY CP 132") that sit next to the CP.
+        val names = (ENCOUNTER_NAME_SLASH.findAll(text) + ENCOUNTER_NAME.findAll(text))
+            .map { it.groupValues[1].lowercase() }
+        names.firstOrNull { it !in NOT_NAMES }?.let { encounterName = it }
     }
 
     /**
@@ -545,5 +549,7 @@ class CatchRunner(
         val XP_POPUP = Regex("""\+\s?[\d,.]+\s?xp""")
         val TRANSFERRED = Regex("""transferred\s+(?:\S*v\s?\d+\s+)?([a-z][a-z'.\-]+)""")
         val ENCOUNTER_NAME = Regex("""([A-Za-zÀ-ÿ'.\-]{3,})\s*/?\s*CP\s?\d""")
+        val ENCOUNTER_NAME_SLASH = Regex("""([A-Za-zÀ-ÿ'.\-]{3,})\s*/\s*CP\s?\d""")
+        val NOT_NAMES = setOf("berry", "ball", "balls", "razz", "nanab", "pinap", "silver", "golden", "great", "ultra", "poké", "poke")
     }
 }

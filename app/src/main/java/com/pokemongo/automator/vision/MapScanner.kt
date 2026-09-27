@@ -50,6 +50,9 @@ class MapScanner(private val model: PokemonModel) {
         val fg = BooleanArray(w * h)
         val white = BooleanArray(w * h)
         val gray = BooleanArray(w * h)
+
+        /** Lavender of a PokéStop that has already been spun. Not a model input. */
+        val visited = BooleanArray(w * h)
     }
 
     fun scan(pixels: IntArray, width: Int, height: Int, minScore: Double = MIN_SCORE): Scan {
@@ -94,6 +97,7 @@ class MapScanner(private val model: PokemonModel) {
                     return@mapNotNull null
                 }
                 if (!clearOfStops(planes, c)) return@mapNotNull null
+                if (visitedFraction(planes, c) > VISITED_MAX) return@mapNotNull null
                 val features = features(planes, c)
                 val score = model.predict(features)
                 if (score < minScore) return@mapNotNull null
@@ -172,6 +176,7 @@ class MapScanner(private val model: PokemonModel) {
             val gray = s < 0.16f && v <= 0.80f && v > 0.18f
             val rare = hist[codes[i]] < rareLimit
             p.stop[i] = stop
+            p.visited[i] = !p.ui[i] && hue >= 250f && hue <= 300f && s >= 0.25f && s <= 0.65f && v > 0.8f
             p.white[i] = white
             p.gray[i] = gray
             p.fg[i] = rare && !stop && !p.ui[i] && v > 0.20f && !(bluish && !gray) && !white
@@ -427,10 +432,17 @@ class MapScanner(private val model: PokemonModel) {
         var hits = 0
         for (y in max(0, cy - STOP_CLEARANCE)..min(p.h - 1, cy + STOP_CLEARANCE)) {
             for (x in max(0, cx - STOP_CLEARANCE)..min(p.w - 1, cx + STOP_CLEARANCE)) {
-                if (p.stop[y * p.w + x]) hits += 1
+                if (p.stop[y * p.w + x] || p.visited[y * p.w + x]) hits += 1
             }
         }
         return hits <= 2
+    }
+
+    /** Share of the candidate's box covered by a spun PokéStop (they merge with Pokémon beside them). */
+    private fun visitedFraction(p: Planes, c: Candidate): Double {
+        var n = 0
+        for (y in c.y0 until c.y1) for (x in c.x0 until c.x1) if (p.visited[y * p.w + x]) n += 1
+        return n.toDouble() / max((c.x1 - c.x0) * (c.y1 - c.y0), 1)
     }
 
     private fun isYellow(p: Planes, i: Int): Boolean =
@@ -519,6 +531,7 @@ class MapScanner(private val model: PokemonModel) {
         private const val TAP_BOTTOM = 0.855
         private const val MIN_TARGET_AREA = 40
         private const val PREFERRED_AREA = 150
+        private const val VISITED_MAX = 0.15
         private const val BALLOON_MIN = 25
         private const val BALLOON_MAX = 200
         private const val ROCKET_DX = 45.0
