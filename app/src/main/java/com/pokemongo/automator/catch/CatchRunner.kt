@@ -551,7 +551,7 @@ class CatchRunner(
         const val RESCAN_MS = 250L
         const val POLL_MS = 150L
         const val FIRST_LOOK_MS = 350L
-        const val NOTHING_AFTER_MS = 1_600L
+        const val NOTHING_AFTER_MS = 2_400L
         const val AFTER_NOTHING_MS = 1_500L
         const val OTHER_AFTER_MS = 3_500L
         const val ENCOUNTER_WINDOW_MS = 6_000L

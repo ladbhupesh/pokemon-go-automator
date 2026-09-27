@@ -412,21 +412,23 @@ class MapScanner(private val model: PokemonModel) {
         return out
     }
 
-    /** Centres (downscaled) of salmon-red blobs shaped like the Team GO Rocket "R" balloon. */
+    /**
+     * Centres (downscaled) of Team GO Rocket "R" balloons: small salmon-red blobs with the
+     * dark Rocket disc below them. The disc check keeps red Pokémon from counting.
+     */
     fun rocketBalloons(p: Planes): List<Pair<Double, Double>> {
         val w = p.w
         val h = p.h
         val red = BooleanArray(w * h)
         for (i in 0 until w * h) {
             val hue = p.hue[i]
-            red[i] = !p.ui[i] && (hue < 16f || hue > 350f) && p.sat[i] in 0.38f..0.75f && p.value[i] in 0.6f..0.95f
+            red[i] = !p.ui[i] && (hue < 18f || hue > 350f) && p.sat[i] in 0.3f..0.75f && p.value[i] in 0.5f..0.98f
         }
-        val mask = dilate(erode(red, w, h, 1), w, h, 1)
         val seen = BooleanArray(w * h)
         val stack = IntArray(w * h)
         val out = mutableListOf<Pair<Double, Double>>()
         for (start in 0 until w * h) {
-            if (!mask[start] || seen[start]) continue
+            if (!red[start] || seen[start]) continue
             var sp = 0
             stack[sp++] = start
             seen[start] = true
@@ -445,16 +447,26 @@ class MapScanner(private val model: PokemonModel) {
                 sx += x
                 sy += y
                 minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
-                if (x > 0 && mask[i - 1] && !seen[i - 1]) { seen[i - 1] = true; stack[sp++] = i - 1 }
-                if (x < w - 1 && mask[i + 1] && !seen[i + 1]) { seen[i + 1] = true; stack[sp++] = i + 1 }
-                if (y > 0 && mask[i - w] && !seen[i - w]) { seen[i - w] = true; stack[sp++] = i - w }
-                if (y < h - 1 && mask[i + w] && !seen[i + w]) { seen[i + w] = true; stack[sp++] = i + w }
+                if (x > 0 && red[i - 1] && !seen[i - 1]) { seen[i - 1] = true; stack[sp++] = i - 1 }
+                if (x < w - 1 && red[i + 1] && !seen[i + 1]) { seen[i + 1] = true; stack[sp++] = i + 1 }
+                if (y > 0 && red[i - w] && !seen[i - w]) { seen[i - w] = true; stack[sp++] = i - w }
+                if (y < h - 1 && red[i + w] && !seen[i + w]) { seen[i + w] = true; stack[sp++] = i + w }
             }
             val bw = maxX - minX + 1
             val bh = maxY - minY + 1
-            if (area in BALLOON_MIN..BALLOON_MAX && bw <= 22 && bh <= 18 && bw >= bh * 0.8) {
-                out += sx.toDouble() / area to sy.toDouble() / area
+            if (area !in BALLOON_MIN..BALLOON_MAX || bw > 24 || bh > 20 || bw < bh * 0.7) continue
+            val cx = sx.toDouble() / area
+            val cy = sy.toDouble() / area
+            var dark = 0
+            var total = 0
+            for (y in cy.toInt() + 4 until min(h, cy.toInt() + 40)) {
+                for (x in max(0, cx.toInt() - 20) until min(w, cx.toInt() + 20)) {
+                    total += 1
+                    val i = y * w + x
+                    if (p.sat[i] < 0.2f && p.value[i] > 0.08f && p.value[i] < 0.4f) dark += 1
+                }
             }
+            if (total > 0 && dark.toDouble() / total >= ROCKET_DARK) out += cx to cy
         }
         return out
     }
@@ -585,8 +597,9 @@ class MapScanner(private val model: PokemonModel) {
         private const val SPOT_DX = 50.0
         private const val SPOT_UP = 84.0
         private const val SPOT_DOWN = 20.0
-        private const val BALLOON_MIN = 25
-        private const val BALLOON_MAX = 200
+        private const val BALLOON_MIN = 20
+        private const val BALLOON_MAX = 220
+        private const val ROCKET_DARK = 0.18
         private const val ROCKET_DX = 45.0
         private const val ROCKET_UP = 12.0
         private const val ROCKET_DOWN = 75.0
