@@ -617,10 +617,10 @@ class MapScanner(private val model: PokemonModel) {
         private const val MIN_TARGET_AREA = 40
         private const val PREFERRED_AREA = 150
         private const val VISITED_MAX = 0.15
-        private const val GYM_BELOW = 35
-        private const val GYM_HALF_W = 30
-        private const val GYM_TEAM = 0.15
-        private const val GYM_WHITE = 0.10
+        private const val GYM_BELOW = 70
+        private const val GYM_HALF_W = 40
+        private const val GYM_TEAM = 0.10
+        private const val GYM_WHITE = 0.08
         private const val SPOT_MIN_AREA = 150
         private const val SPOT_DX = 50.0
         private const val SPOT_UP = 84.0
