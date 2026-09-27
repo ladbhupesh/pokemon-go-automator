@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -18,6 +17,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -27,6 +27,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.pokemongo.automator.service.AutomatorState
 import com.pokemongo.automator.service.ScreenCaptureService
+import com.pokemongo.automator.service.SessionStore
+import kotlinx.coroutines.delay
 import com.pokemongo.automator.service.startCatchLoop
 import com.pokemongo.automator.ui.HomeScreen
 import com.pokemongo.automator.ui.theme.PokemonGoAutomatorTheme
@@ -46,10 +48,20 @@ class MainActivity : ComponentActivity() {
                 lifecycleOwner.lifecycle.addObserver(observer)
                 onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
             }
-            val overlayGranted = remember(permissionTick) { isOverlayGranted() }
             val accessibilityGranted = remember(permissionTick) { isAutomatorAccessibilityEnabled() }
             val running by AutomatorState.running.collectAsState()
             val serviceStatus by AutomatorState.status.collectAsState()
+            val session by SessionStore.current.collectAsState()
+            val history by SessionStore.history.collectAsState()
+            val target by SessionStore.target.collectAsState()
+            var activeMs by remember { mutableLongStateOf(SessionStore.activeMs()) }
+            LaunchedEffect(running, session) {
+                activeMs = SessionStore.activeMs()
+                while (running) {
+                    delay(1_000)
+                    activeMs = SessionStore.activeMs()
+                }
+            }
             var localNote by remember { mutableStateOf<String?>(null) }
 
             val projectionLauncher = rememberLauncherForActivityResult(
@@ -72,6 +84,7 @@ class MainActivity : ComponentActivity() {
 
             val startLoop = {
                 localNote = null
+                if (SessionStore.targetReached()) SessionStore.newSession()
                 val needsNotification = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     ContextCompat.checkSelfPermission(
                         this,
@@ -87,7 +100,7 @@ class MainActivity : ComponentActivity() {
             // starts a run without touching the phone, for scripted test runs.
             LaunchedEffect(Unit) {
                 if (intent.getBooleanExtra(EXTRA_AUTOSTART, false) && !running &&
-                    overlayGranted && accessibilityGranted
+                    accessibilityGranted
                 ) {
                     intent.removeExtra(EXTRA_AUTOSTART)
                     startLoop()
@@ -98,21 +111,19 @@ class MainActivity : ComponentActivity() {
                 HomeScreen(
                     status = if (running) serviceStatus else localNote ?: serviceStatus,
                     running = running,
-                    overlayGranted = overlayGranted,
                     accessibilityGranted = accessibilityGranted,
-                    onAllowOverlay = {
-                        startActivity(
-                            Intent(
-                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                Uri.parse("package:$packageName"),
-                            ),
-                        )
-                    },
+                    session = session,
+                    activeMs = activeMs,
+                    history = history,
+                    target = target,
                     onAllowAccessibility = {
                         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
                     },
                     onStart = startLoop,
                     onStop = { startService(ScreenCaptureService.stopIntent(this)) },
+                    onNewSession = { SessionStore.newSession() },
+                    onTargetChange = { SessionStore.setTarget(it) },
+                    onClearHistory = { SessionStore.clearHistory() },
                 )
             }
         }

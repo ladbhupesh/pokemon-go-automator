@@ -38,6 +38,8 @@ class CatchRunner(
     private val mightBeMap: (Bitmap) -> Boolean,
     private val pokemonGoInFront: () -> Boolean,
     private val serviceConnected: () -> Boolean = { true },
+    private val paused: () -> Boolean = { false },
+    private val tapBlocked: (x: Int, y: Int) -> Boolean = { _, _ -> false },
     private val onStatus: (String) -> Unit,
     private val onEvent: (RunEvent) -> Unit,
     private val log: (String) -> Unit = {},
@@ -54,6 +56,11 @@ class CatchRunner(
     suspend fun run(isActive: () -> Boolean) {
         var state = loop.initial()
         while (isActive()) {
+            if (paused()) {
+                onStatus("Paused")
+                while (isActive() && paused()) delay(PAUSE_POLL_MS)
+                continue
+            }
             if (!pokemonGoInFront()) {
                 onStatus(if (serviceConnected()) "Waiting for Pokémon Go" else "Turn the accessibility service off and on")
                 delay(WAIT_FOR_GAME_MS)
@@ -525,7 +532,7 @@ class CatchRunner(
      * are often translucent and the game ignores taps on them.
      */
     private fun pickTarget(targets: List<MapScanner.Target>): MapScanner.Target? {
-        val usable = targets.filter { allowed(it) && !tracker.isGhost(it.x, it.y) }
+        val usable = targets.filter { allowed(it) && !tracker.isGhost(it.x, it.y) && !tapBlocked(it.x, it.y) }
         val first = usable.firstOrNull() ?: return null
         return usable
             .filter { t -> kotlin.math.abs(t.x - first.x) < CLUSTER_PX && kotlin.math.abs(t.y - first.y) < CLUSTER_PX }
@@ -555,6 +562,7 @@ class CatchRunner(
 
     private companion object {
         const val WAIT_FOR_GAME_MS = 1_000L
+        const val PAUSE_POLL_MS = 250L
         const val RESCAN_MS = 250L
         const val POLL_MS = 150L
         const val FIRST_LOOK_MS = 350L

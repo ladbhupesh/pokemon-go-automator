@@ -42,7 +42,6 @@ import kotlinx.coroutines.launch
 
 class ScreenCaptureService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val overlay by lazy { OverlayController(this) }
     private val ocr = EncounterOcr()
 
     private var mediaProjection: MediaProjection? = null
@@ -54,7 +53,6 @@ class ScreenCaptureService : Service() {
     @Volatile
     private var stopped = false
 
-    private var caughtCount = 0
     private var runLog: RunLog? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -66,6 +64,12 @@ class ScreenCaptureService : Service() {
         }
         startInForeground("Starting")
         if (AutomatorState.running.value && mediaProjection != null) {
+            return START_NOT_STICKY
+        }
+        SessionStore.init(this)
+        if (SessionStore.targetReached()) {
+            AutomatorState.status.value = "Done: session reached ${SessionStore.target.value}. Start a new session."
+            stopSelf()
             return START_NOT_STICKY
         }
 
@@ -84,7 +88,6 @@ class ScreenCaptureService : Service() {
 
         try {
             startProjection(resultCode, resultData)
-            overlay.show()
         } catch (error: RuntimeException) {
             AutomatorState.status.value = "Stopped: ${error.message ?: "could not capture"}"
             stopSelf()
@@ -93,6 +96,7 @@ class ScreenCaptureService : Service() {
 
         AutomatorState.running.value = true
         AutomatorState.status.value = "Scanning"
+        SessionStore.runStarted()
         val scanner = MapScanner(assets.open(PokemonModel.ASSET).reader().use(PokemonModel::read))
         val log = RunLog(File(getExternalFilesDir(null), "runs"), scope)
         runLog = log
@@ -121,11 +125,14 @@ class ScreenCaptureService : Service() {
                         AutomatorAccessibilityService.instance?.isPokemonGoInFront() == true
                     },
                     serviceConnected = { AutomatorAccessibilityService.instance != null },
+                    paused = { AutomatorState.menuOpen.value },
+                    tapBlocked = { x, y -> AutomatorAccessibilityService.instance?.isCoveredByOtherWindow(x, y) == true },
                     onStatus = ::publish,
                     log = { line -> Log.i(TAG, line) },
                     onEvent = { event ->
                         log.record(event)
-                        if (event is RunEvent.Caught) onCaught(log.caught)
+                        SessionStore.record(event)
+                        if (event is RunEvent.Caught) onCaught()
                     },
                 ).run { !stopped }
             } catch (cancelled: CancellationException) {
@@ -233,23 +240,25 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun onCaught(count: Int) {
-        caughtCount = count
-        Log.i(TAG, "verified catch $count/$TARGET_CATCHES")
-        publish("Caught $count/$TARGET_CATCHES")
-        if (count >= TARGET_CATCHES) {
+    private fun onCaught() {
+        val count = SessionStore.current.value.caught
+        val target = SessionStore.target.value
+        Log.i(TAG, "verified catch $count/$target")
+        publish("Caught")
+        if (SessionStore.targetReached()) {
             AutomatorState.status.value = "Done: caught $count"
             stopSelf()
         }
     }
 
+    /** Status line; the menu and status pill add the session count themselves. */
     private fun publish(text: String) {
-        val line = if (caughtCount > 0 && !text.startsWith("Caught")) "$text · $caughtCount/$TARGET_CATCHES" else text
-        Log.i(TAG, line)
-        AutomatorState.status.value = line
-        overlay.update(line)
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(line))
+        Log.i(TAG, text)
+        AutomatorState.status.value = text
+        val caught = SessionStore.current.value.caught
+        val target = SessionStore.target.value
+        val line = if (target > 0) "$text · $caught/$target" else "$text · $caught caught"
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(line))
     }
 
     private fun startInForeground(text: String) {
@@ -313,7 +322,7 @@ class ScreenCaptureService : Service() {
         stopped = true
         runLog?.let { Log.i(TAG, "run finished ${it.summary()}") }
         scope.cancel()
-        overlay.remove()
+        SessionStore.runStopped()
         virtualDisplay?.release()
         virtualDisplay = null
         imageReader?.close()
@@ -355,7 +364,6 @@ class ScreenCaptureService : Service() {
         private const val TAG = "CatchLoop"
         private const val CHANNEL_ID = "catch_loop"
         private const val NOTIFICATION_ID = 42
-        private const val TARGET_CATCHES = 100
 
         fun stopIntent(context: android.content.Context): Intent {
             return Intent(context, ScreenCaptureService::class.java).setAction(ACTION_STOP)

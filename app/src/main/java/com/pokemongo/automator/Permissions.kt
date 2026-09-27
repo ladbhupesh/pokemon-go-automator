@@ -5,8 +5,6 @@ import android.content.Context
 import android.provider.Settings
 import com.pokemongo.automator.service.AutomatorAccessibilityService
 
-fun Context.isOverlayGranted(): Boolean = Settings.canDrawOverlays(this)
-
 fun Context.isAutomatorAccessibilityEnabled(): Boolean {
     val enabled = Settings.Secure.getString(
         contentResolver,
