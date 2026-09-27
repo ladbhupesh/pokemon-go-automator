@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Pokemon Go Automator</string>
+    <string name="accessibility_description">The accessibility button stops the catch loop. The service taps one Pokémon and throws a straight ball.</string>
+</resources>
